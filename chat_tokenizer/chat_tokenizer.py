@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import List, Tuple, Union
+from functools import partial
+from typing import List, Optional, Tuple, Union
 
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -56,15 +57,20 @@ class ChatTokenizer:
     def tokenize(
         self,
         audio_lens: Union[int, List[int]],
-        labels: Union[str, List[str]],
+        labels: Optional[Union[str, List[str]]] = None,
         task_instruction: str = "",
         tokenize: bool = True,
+        add_generation_prompt: bool = False,
     ) -> Tuple[List[int], List[int]]:
+        if labels is None:
+            assert add_generation_prompt
         if isinstance(audio_lens, int):
-            assert isinstance(labels, str)
-            audio_lens = [audio_lens]
-            labels = [labels]
-        assert len(audio_lens) == len(labels)
+            assert labels is None or isinstance(labels, str)
+            audio_lens, labels = [audio_lens], [labels]
+        elif add_generation_prompt:
+            assert len(labels) == len(audio_lens) - 1
+            labels.append(None)
+        assert len(labels) == len(audio_lens)
 
         chat = []
         label_ids = []
@@ -73,28 +79,36 @@ class ChatTokenizer:
         for audio_len, label in zip(audio_lens, labels):
             audio_placeholder = self.audio_placeholder * audio_len
             chat.append({"role": "user", "content": f"{task_instruction} {audio_placeholder}".strip()})
-            label_ids.append(self.tokenizer(label)["input_ids"])
-            label_placeholder = self.label_placeholder * len(label_ids[-1])
-            chat.append({"role": "assistant", "content": label_placeholder})
-        input_ids = self.tokenizer.apply_chat_template(chat, tokenize=tokenize, add_generation_prompt=False)
-        return sum(label_ids, []), input_ids
+            if label is not None:
+                label_ids.append(self.tokenizer(label)["input_ids"])
+                label_placeholder = self.label_placeholder * len(label_ids[-1])
+                chat.append({"role": "assistant", "content": label_placeholder})
+        return self.tokenizer.apply_chat_template(
+            chat, tokenize=tokenize, add_generation_prompt=add_generation_prompt
+        ), sum(label_ids, [])
 
     def batch_tokenize(
         self,
         audio_lens: List[Union[int, List[int]]],
-        labels: List[Union[str, List[str]]],
+        labels: Optional[List[Union[str, List[str]]]] = None,
         task_instructions: Union[str, List[str]] = "",
         batch_first: bool = True,
+        add_generation_prompt: bool = False,
         device: torch.device = torch.device("cpu"),
     ):
+        if labels is None:
+            assert add_generation_prompt
+            labels = [None] * len(audio_lens)
         assert len(audio_lens) == len(labels)
         if not isinstance(task_instructions, list):
             task_instructions = [task_instructions] * len(audio_lens)
-        label_ids, input_ids = zip(*map(self.tokenize, audio_lens, labels, task_instructions))
-        label_lens = [len(ids) for ids in label_ids]
+
+        tokenize = partial(self.tokenize, add_generation_prompt=add_generation_prompt)
+        input_ids, label_ids = zip(*map(tokenize, audio_lens, labels, task_instructions))
         input_lens = [len(ids) for ids in input_ids]
-        label_ids = [torch.tensor(ids, device=device, dtype=torch.long) for ids in label_ids]
+        label_lens = [len(ids) for ids in label_ids]
         input_ids = [torch.tensor(ids, device=device, dtype=torch.long) for ids in input_ids]
-        label_ids = pad_sequence(label_ids, padding_value=self.tokenizer.pad_token_id, batch_first=batch_first).long()
+        label_ids = [torch.tensor(ids, device=device, dtype=torch.long) for ids in label_ids]
         input_ids = pad_sequence(input_ids, padding_value=self.tokenizer.pad_token_id, batch_first=batch_first).long()
-        return label_ids, input_ids, label_lens, input_lens
+        label_ids = pad_sequence(label_ids, padding_value=self.tokenizer.pad_token_id, batch_first=batch_first).long()
+        return input_ids, input_lens, label_ids, label_lens
