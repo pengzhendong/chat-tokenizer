@@ -91,8 +91,10 @@ class ChatTokenizer:
         if not isinstance(task_instructions, list):
             task_instructions = [task_instructions] * len(audio_lens)
         label_ids, input_ids = zip(*map(self.tokenize, audio_lens, labels, task_instructions))
+        label_lens = [len(ids) for ids in label_ids]
+        input_lens = [len(ids) for ids in input_ids]
         label_ids = [torch.tensor(ids, device=device, dtype=torch.long) for ids in label_ids]
         input_ids = [torch.tensor(ids, device=device, dtype=torch.long) for ids in input_ids]
         label_ids = pad_sequence(label_ids, padding_value=self.tokenizer.pad_token_id, batch_first=batch_first).long()
         input_ids = pad_sequence(input_ids, padding_value=self.tokenizer.pad_token_id, batch_first=batch_first).long()
-        return label_ids, input_ids
+        return label_ids, input_ids, label_lens, input_lens
