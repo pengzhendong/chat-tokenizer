@@ -54,6 +54,23 @@ class ChatTokenizer:
         input_ids[self.label_mask(input_ids)] = label_ids[self.pad_mask(label_ids, False)]
         return input_ids
 
+    def tokenize_label(self, label: str) -> List[int]:
+        return self.tokenizer(label)["input_ids"]
+
+    def pad_token_ids(
+        self, token_ids: List[List[int]], batch_first: bool = True, device: torch.device = torch.device("cpu")
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        token_lens = torch.tensor([len(ids) for ids in token_ids], device=device, dtype=torch.long)
+        token_ids = [torch.tensor(ids, device=device, dtype=torch.long) for ids in token_ids]
+        token_ids = pad_sequence(token_ids, padding_value=self.tokenizer.pad_token_id, batch_first=batch_first).long()
+        return token_ids, token_lens
+
+    def batch_tokenize_label(
+        self, labels: List[str], batch_first: bool = True, device: torch.device = torch.device("cpu")
+    ) -> List[List[int]]:
+        label_ids = [self.tokenize_label(label) for label in labels]
+        return self.pad_token_ids(label_ids, batch_first, device)
+
     def tokenize(
         self,
         audio_lens: Union[int, List[int]],
@@ -80,7 +97,7 @@ class ChatTokenizer:
             audio_placeholder = self.audio_placeholder * audio_len
             chat.append({"role": "user", "content": f"{task_instruction} {audio_placeholder}".strip()})
             if label is not None:
-                label_ids.append(self.tokenizer(label)["input_ids"])
+                label_ids.append(self.tokenize_label(label))
                 label_placeholder = self.label_placeholder * len(label_ids[-1])
                 chat.append({"role": "assistant", "content": label_placeholder})
         return self.tokenizer.apply_chat_template(
@@ -105,10 +122,6 @@ class ChatTokenizer:
 
         tokenize = partial(self.tokenize, add_generation_prompt=add_generation_prompt)
         input_ids, label_ids = zip(*map(tokenize, audio_lens, labels, task_instructions))
-        input_lens = [len(ids) for ids in input_ids]
-        label_lens = [len(ids) for ids in label_ids]
-        input_ids = [torch.tensor(ids, device=device, dtype=torch.long) for ids in input_ids]
-        label_ids = [torch.tensor(ids, device=device, dtype=torch.long) for ids in label_ids]
-        input_ids = pad_sequence(input_ids, padding_value=self.tokenizer.pad_token_id, batch_first=batch_first).long()
-        label_ids = pad_sequence(label_ids, padding_value=self.tokenizer.pad_token_id, batch_first=batch_first).long()
+        input_ids, input_lens = self.pad_token_ids(input_ids, batch_first, device)
+        label_ids, label_lens = self.pad_token_ids(label_ids, batch_first, device)
         return input_ids, input_lens, label_ids, label_lens
