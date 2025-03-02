@@ -36,19 +36,18 @@ class ChatTokenizer:
         self.label_placeholder_id = self.tokenizer.convert_tokens_to_ids(label_placeholder)
 
     def audio_mask(self, input_ids: torch.Tensor, valid: bool = True) -> torch.Tensor:
-        if valid:
-            return input_ids == self.audio_placeholder_id
-        return input_ids != self.audio_placeholder_id
+        mask = input_ids == self.audio_placeholder_id
+        return mask if valid else ~mask
 
-    def label_mask(self, input_ids: torch.Tensor, valid: bool = True) -> torch.Tensor:
-        if valid:
-            return input_ids == self.label_placeholder_id
-        return input_ids != self.label_placeholder_id
+    def label_mask(self, input_ids: torch.Tensor, mask_eol: bool = False, valid: bool = True) -> torch.Tensor:
+        mask = input_ids == self.label_placeholder_id
+        if mask_eol:
+            mask |= torch.roll(mask, 1, dims=1)
+        return mask if valid else ~mask
 
     def pad_mask(self, input_ids: torch.Tensor, valid: bool = True) -> torch.Tensor:
-        if valid:
-            return input_ids == self.tokenizer.pad_token_id
-        return input_ids != self.tokenizer.pad_token_id
+        mask = input_ids == self.tokenizer.pad_token_id
+        return mask if valid else ~mask
 
     def fill_labels(self, label_ids: torch.Tensor, input_ids: torch.Tensor) -> torch.Tensor:
         input_ids[self.label_mask(input_ids)] = label_ids[self.pad_mask(label_ids, False)]
