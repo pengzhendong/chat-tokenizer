@@ -24,10 +24,12 @@ class ChatTokenizer:
         self,
         tokenizer,
         system_prompt: str = None,
+        instruction_first: bool = True,
         audio_placeholder: str = "<|audio|>",
         label_placeholder: str = "<|label|>",
     ):
         self.system_prompt = system_prompt
+        self.instruction_first = instruction_first
         self.tokenizer = tokenizer
         self.tokenizer.add_special_tokens({"additional_special_tokens": [audio_placeholder, label_placeholder]})
         self.audio_placeholder = audio_placeholder
@@ -96,7 +98,10 @@ class ChatTokenizer:
             chat.append({"role": "system", "content": self.system_prompt})
         for audio_len, label, instruction in zip(audio_lens, labels, instructions):
             audio_placeholder = self.audio_placeholder * audio_len
-            chat.append({"role": "user", "content": f"{instruction} {audio_placeholder}".strip()})
+            content = " ".join(
+                [instruction, audio_placeholder] if self.instruction_first else [audio_placeholder, instruction]
+            )
+            chat.append({"role": "user", "content": content.strip()})
             if label is not None:
                 label_ids.append(self.tokenize_label(label))
                 label_placeholder = self.label_placeholder * len(label_ids[-1])
