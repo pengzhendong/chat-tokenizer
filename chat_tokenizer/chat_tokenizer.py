@@ -74,7 +74,7 @@ class ChatTokenizer:
         self,
         audio_lens: Union[int, List[int]],
         labels: Optional[Union[str, List[str]]] = None,
-        task_instruction: str = "",
+        instructions: Union[str, List[str]] = "",
         tokenize: bool = True,
         add_generation_prompt: bool = False,
     ) -> Tuple[List[int], List[int]]:
@@ -86,15 +86,17 @@ class ChatTokenizer:
         elif add_generation_prompt:
             assert len(labels) == len(audio_lens) - 1
             labels.append(None)
-        assert len(labels) == len(audio_lens)
+        if isinstance(instructions, str):
+            instructions = [instructions] * len(audio_lens)
+        assert len(instructions) == len(audio_lens)
 
         chat = []
         label_ids = []
         if self.system_prompt is not None:
             chat.append({"role": "system", "content": self.system_prompt})
-        for audio_len, label in zip(audio_lens, labels):
+        for audio_len, label, instruction in zip(audio_lens, labels, instructions):
             audio_placeholder = self.audio_placeholder * audio_len
-            chat.append({"role": "user", "content": f"{task_instruction} {audio_placeholder}".strip()})
+            chat.append({"role": "user", "content": f"{instruction} {audio_placeholder}".strip()})
             if label is not None:
                 label_ids.append(self.tokenize_label(label))
                 label_placeholder = self.label_placeholder * len(label_ids[-1])
@@ -107,20 +109,25 @@ class ChatTokenizer:
         self,
         audio_lens: List[Union[int, List[int]]],
         labels: Optional[List[Union[str, List[str]]]] = None,
-        task_instructions: Union[str, List[str]] = "",
+        instructions: Union[str, List[Union[str, List[str]]]] = "",
         batch_first: bool = True,
         add_generation_prompt: bool = False,
         device: torch.device = torch.device("cpu"),
     ):
+        batch_size = len(audio_lens)
         if labels is None:
             assert add_generation_prompt
-            labels = [None] * len(audio_lens)
-        assert len(audio_lens) == len(labels)
-        if not isinstance(task_instructions, list):
-            task_instructions = [task_instructions] * len(audio_lens)
-
+            labels = [None] * batch_size
+        if isinstance(instructions, str):
+            instructions = [instructions] * batch_size
+        assert len(instructions) == batch_size
+        assert all(
+            len(instruction) == len(audio_len)
+            for instruction, audio_len in zip(instructions, audio_lens)
+            if isinstance(instruction, list)
+        )
         tokenize = partial(self.tokenize, add_generation_prompt=add_generation_prompt)
-        input_ids, label_ids = zip(*map(tokenize, audio_lens, labels, task_instructions))
+        input_ids, label_ids = zip(*map(tokenize, audio_lens, labels, instructions))
         input_ids, input_lens = self.pad_token_ids(input_ids, batch_first, device)
         label_ids, label_lens = self.pad_token_ids(label_ids, batch_first, device)
         return input_ids, input_lens, label_ids, label_lens
