@@ -29,8 +29,6 @@ class ChatTokenizer:
         q_audio_token: str = "<|q-audio|>",
         a_audio_token: str = "<|a-audio|>",
         label_token: str = "<|label|>",
-        hint_text_token: str = "<|hint-text|>",
-        a_audio_eos_token: str = "<|a-audio-eos|>",
     ):
         self.system_prompt = system_prompt
         self.instruction_first = instruction_first
@@ -38,8 +36,6 @@ class ChatTokenizer:
             "q_audio_token": q_audio_token,
             "a_audio_token": a_audio_token,
             "label_token": label_token,
-            "hint_text_token": hint_text_token,
-            "a_audio_eos_token": a_audio_eos_token,
         }
         for name, token in special_tokens.items():
             setattr(self, name, token)
@@ -143,17 +139,12 @@ class ChatTokenizer:
         for q_audio_len, a_audio_len, label in zip(q_audio_lens, a_audio_lens, labels):
             chat.extend([self.q_audio_token_id] * q_audio_len)
             chat.extend(self.tokenizer(sep)["input_ids"])
-            label_ids.append(self.tokenizer(label)["input_ids"])
+            label_ids.append(self.tokenizer(label + self.tokenizer.eos_token)["input_ids"])
             label_chunks = self.split(len(label_ids[-1]), label_chunk_size)
             a_audio_chunks = self.split(a_audio_len, audio_chunk_size)
-            for idx, (label_chunk, a_audio_chunk) in enumerate(zip_longest(label_chunks, a_audio_chunks, fillvalue=0)):
+            for label_chunk, a_audio_chunk in zip_longest(label_chunks, a_audio_chunks, fillvalue=0):
                 chat.extend([self.label_token_id] * label_chunk)
-                a_audio_placeholder = [self.a_audio_token_id] * a_audio_chunk
-                if idx == len(a_audio_chunks) - 1:
-                    a_audio_placeholder.append(self.a_audio_eos_token_id)
-                elif a_audio_chunk == audio_chunk_size:
-                    a_audio_placeholder.append(self.hint_text_token_id)
-                chat.extend(a_audio_placeholder)
+                chat.extend([self.a_audio_token_id] * a_audio_chunk)
         return chat, sum(label_ids, [])
 
     def batch_tokenize(
