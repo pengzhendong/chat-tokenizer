@@ -74,6 +74,27 @@ class ChatTokenizer:
         token_ids = pad_sequence(token_ids, padding_value=self.tokenizer.pad_token_id, batch_first=batch_first).long()
         return token_ids, token_lens
 
+    def template(self, instruction: str = "") -> Tuple[List[int], List[int]]:
+        chat = []
+        if self.system_prompt is not None:
+            chat.append({"role": "system", "content": self.system_prompt})
+        content = " ".join(
+            [instruction, self.q_audio_token] if self.instruction_first else [self.q_audio_token, instruction]
+        )
+        for _ in range(2):
+            chat.append({"role": "user", "content": content.strip()})
+            chat.append({"role": "assistant", "content": self.label_token})
+        template = self.tokenizer.apply_chat_template(chat)
+
+        q_audio_token_index = template.index(self.q_audio_token_id)
+        prefix = template[:q_audio_token_index]
+        label_token_index = template.index(self.label_token_id)
+        infix = template[q_audio_token_index + 1 : label_token_index]
+        template = template[label_token_index + 1 :]
+        q_audio_token_index = template.index(self.q_audio_token_id)
+        suffix = template[:q_audio_token_index]
+        return prefix, infix, suffix
+
     def batch_tokenize_label(
         self, labels: List[str], batch_first: bool = True, device: torch.device = torch.device("cpu")
     ) -> List[List[int]]:
