@@ -63,7 +63,9 @@ class ChatTokenizer:
         return mask if valid else ~mask
 
     def fill_labels(self, label_ids: torch.Tensor, input_ids: torch.Tensor) -> torch.Tensor:
-        input_ids[self.mask(input_ids, self.label_id)] = label_ids[self.mask(label_ids, valid=False)]
+        input_ids[self.mask(input_ids, self.label_id)] = label_ids[
+            self.mask(label_ids, self.tokenizer.pad_token_id, valid=False)
+        ]
         return input_ids
 
     def pad_token_ids(
